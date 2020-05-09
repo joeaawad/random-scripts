@@ -1,10 +1,11 @@
 """Created by Joe Awad
 
-Update a string in all repos an organization owns that match a given name regex.
+Update a string in all repos an organization owns that match a given name regex
+or repo topic.
 
 A common use case is if you have all repos that use a certain tool include the
-tool name in the repo name and you would like to update the pinned version of
-a package across the entire organization.
+tool name in the repo name or topic list and you would like to update the
+pinned version of a package across the entire organization.
 
 Must have https://github.com/ggreer/the_silver_searcher#installing installed
 if you're not providing a target_file
@@ -18,7 +19,7 @@ import os
 import subprocess
 import tempfile
 
-def get_repo_names(org_name: str, repo_regex: str,
+def get_repo_names(org_name: str, repo_regex: str, repo_topic: str,
                    ignore_repos: list) -> list:
     repos = []
 
@@ -26,7 +27,11 @@ def get_repo_names(org_name: str, repo_regex: str,
     all_repos = org.get_repos()
 
     for repo in all_repos:
-        if repo_regex in repo.name and repo.name not in ignore_repos:
+        if repo.name in ignore_repos:
+            continue
+        if repo_regex and repo_regex in repo.name:
+            repos.append(repo.name)
+        if repo_topic and repo_topic in repo.get_topics():
             repos.append(repo.name)
 
     return repos
@@ -57,7 +62,7 @@ def update_repo(
     else:
         file_paths = get_file_paths(repo_path, target)
         if not file_paths:
-            print(f"No matches found or changes made to {repo_name}")
+            print(f"No matches found in or changes made to {repo_name}")
             return
         print(f"Matches found in: {file_paths}")
 
@@ -73,7 +78,7 @@ def update_repo(
     try:
         repo.git.commit("-a", "-m", commit_message)
     except (git.exc.GitCommandError):
-        print(f"No matches found or changes made to {repo_name}")
+        print(f"No matches found in or changes made to {repo_name}")
         return
 
     repo.git.push()
@@ -86,17 +91,19 @@ def update_repo(
     print(f"Created {pr.html_url}")
     return pr.html_url
 
-def main(org_name: str, repo_regex: str, ignore_repos: list,
+def main(org_name: str, repo_regex: str, repo_topic: str, ignore_repos: list,
          branch_name: str, commit_message: str,
          target_file: str, target: str, replacement: str):
     pr_links = []
-    parent_directory = tempfile.TemporaryDirectory().name
 
-    print(f"Directory created at {parent_directory}")
+    if not repo_regex and not repo_topic:
+        raise ValueError("Must specify repo-regex or repo-topic")
 
-    repo_names = get_repo_names(org_name, repo_regex, ignore_repos)
-
+    repo_names = get_repo_names(org_name, repo_regex, repo_topic, ignore_repos)
     print(f"The following repos will be updated: {repo_names}")
+
+    parent_directory = tempfile.TemporaryDirectory().name
+    print(f"Directory created at {parent_directory}")
 
     for repo_name in repo_names:
         pr_url = update_repo(
@@ -118,8 +125,11 @@ def parser():
     parser.add_argument(
         "org_name", help="Github Organization")
     parser.add_argument(
-        "repo_regex",
-        help="Regex to determine what repo names to change")
+        "--repo-regex",
+        help="Repo name regex to determine which repos to change")
+    parser.add_argument(
+        "--repo-topic",
+        help="Repo topic to determine which repos to change")
     parser.add_argument(
         "--ignore-repos", default=[],
         help="List of names of repos to skip")
@@ -128,7 +138,7 @@ def parser():
     parser.add_argument(
         "commit_message", help="Commit message")
     parser.add_argument(
-        "--target-file", default=None,
+        "--target-file",
         help="Path within the repo of the file to do the replacement in, "
              "default searches all files")
     parser.add_argument(
@@ -146,6 +156,7 @@ if __name__ == "__main__":
     main(
         args.org_name,
         args.repo_regex,
+        args.repo_topic,
         args.ignore_repos,
         args.branch_name,
         args.commit_message,
