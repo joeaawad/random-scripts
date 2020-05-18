@@ -1,0 +1,49 @@
+# Created by Joe Awad
+
+# If you would like the Makefile to be consistent across all repos,
+# you can move ENVS and DEFAULT_ROLE to a separate file (eg. Makefile-config)
+# and add `include Makefile-config` to this file.
+
+# global settings:
+ENVS=dev stage prod
+DEFAULT_ROLE=admin
+PARALLEL_OPS=50
+.DEFAULT_GOAL:=help
+
+define HELP_INSTRUCTIONS
+Usage:
+	make \033[36m<action>\033[0m         to run action in all environments
+	make \033[36m<action>-<env>\033[0m   to run action in one environment
+
+Apply with non-default profile example:
+	make apply-preprod env=prod role=admin
+
+Actions:
+endef
+export HELP_INSTRUCTIONS
+
+apply: $(patsubst %,apply-%,$(ENVS)) ## Apply terraform. Can also take env and role arguments to build the profile name
+apply-%:
+	cd ./$* && terraform apply -parallelism=$(PARALLEL_OPS) -var 'profile=$(or $(env),$*)-$(or $(role),$(DEFAULT_ROLE))' $(args)
+
+fmt: ## Format terraform
+	@terraform fmt -recursive
+
+fmt-check: ## Check terraform formatting
+	@terraform fmt -recursive -check $(args)
+
+help: ## Display this help
+	@echo "$$HELP_INSTRUCTIONS"
+	@awk 'BEGIN {FS = ":.*##"} /^[a-z-]+:.*?##/ { printf "\t\033[36m%-10s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+
+init: $(patsubst %,init-%,$(ENVS)) ## Initialize terraform
+init-%:
+	cd ./$* && rm -rf ./.terraform && terraform init -upgrade
+
+plan: $(patsubst %,plan-%,$(ENVS)) ## Plan terraform
+plan-%: fmt refresh-%
+	@echo "$* PLAN:" | tr a-z A-Z
+	@cd ./$* && terraform plan -refresh=false $(args)
+
+refresh-%:
+	@cd ./$* && terraform refresh -parallelism=$(PARALLEL_OPS) $(args) 2>&1 > /dev/null
