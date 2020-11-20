@@ -49,8 +49,8 @@ def update_file(file_path: str, target: str, replacement: str):
 
 def update_repo(
         org_name: str, repo_name: str, parent_directory: str,
-        branch_name: str, commit_message: str, target_file: str,
-        target: str, replacement: str) -> str:
+        base_branch: str, branch_name: str, commit_message: str,
+        target_file: str, target: str, replacement: str, pr: bool) -> str:
     remote_repo = gh.get_repo(f"{org_name}/{repo_name}")
 
     repo_path = os.path.join(parent_directory, repo_name)
@@ -81,44 +81,60 @@ def update_repo(
         print(f"No matches found in or changes made to {repo_name}")
         return
 
+    if pr:
+        return create_pr(repo, remote_repo, repo_name, base_branch, branch_name,
+                         commit_message)
+    else:
+        return [f"{repo_name}/{file_path}" for file_path in file_paths]
+
+def create_pr(
+        repo, remote_repo, repo_name: str, base_branch: str, branch_name: str,
+        commit_message: str) -> str:
     repo.git.push()
     pr = remote_repo.create_pull(
         title=commit_message,
         body="", # required or the package assumes the PR is based on an issue
         head=branch_name,
-        base="master")
+        base=base_branch)
 
     print(f"Created {pr.html_url}")
-    return pr.html_url
+    return [pr.html_url]
 
 def main(org_name: str, repo_regex: str, repo_topic: str, ignore_repos: list,
-         branch_name: str, commit_message: str,
-         target_file: str, target: str, replacement: str):
-    pr_links = []
+         base_branch: str, branch_name: str, commit_message: str,
+         target_file: str, target: str, replacement: str, pr: bool):
+    results = []
 
     if not repo_regex and not repo_topic:
         raise ValueError("Must specify repo-regex or repo-topic")
 
     repo_names = get_repo_names(org_name, repo_regex, repo_topic, ignore_repos)
-    print(f"The following repos will be updated: {repo_names}")
+    print(f"The following repos will be checked: {repo_names}")
 
     parent_directory = tempfile.TemporaryDirectory().name
     print(f"Directory created at {parent_directory}")
 
     for repo_name in repo_names:
-        pr_url = update_repo(
-            org_name, repo_name, parent_directory, branch_name,
-            commit_message, target_file, target, replacement)
+        result_paths = update_repo(
+            org_name, repo_name, parent_directory, base_branch, branch_name,
+            commit_message, target_file, target, replacement, pr)
 
-        if pr_url is not None:
-            pr_links.append(pr_url)
+        if result_paths is not None:
+            results.extend(result_paths)
 
-    if not pr_links:
-        print("No changes made")
+    print()
+    if not results:
+        print("No matches found or changes made")
     else:
-        print("Finished, created the following PRs:")
-        for url in pr_links:
-            print(url)
+        if pr:
+            print("Finished, created the following PRs:")
+        else:
+            print(f"Changed the following files in {parent_directory}:")
+        for path in results:
+            print(path)
+        if not pr:
+            print("\nRerun this command with '--pr' if you would like the "
+                  "changes to be pushed up and a PR opened.")
 
 def parser():
     parser = argparse.ArgumentParser()
@@ -134,6 +150,9 @@ def parser():
         "--ignore-repos", default=[],
         help="List of names of repos to skip")
     parser.add_argument(
+        "--base-branch", default="master",
+        help="Name of the base branch to open a PR against")
+    parser.add_argument(
         "branch_name", help="Name to create the branch with")
     parser.add_argument(
         "commit_message", help="Commit message")
@@ -145,6 +164,9 @@ def parser():
         "target", help="String to find and replace")
     parser.add_argument(
         "replacement", help="String to replace old_string with")
+    parser.add_argument(
+        "--pr", action="store_true",
+        help="If the change should be pushed up and a PR created")
 
     return parser.parse_args()
 
@@ -158,8 +180,10 @@ if __name__ == "__main__":
         args.repo_regex,
         args.repo_topic,
         args.ignore_repos,
+        args.base_branch,
         args.branch_name,
         args.commit_message,
         args.target_file,
         args.target,
-        args.replacement)
+        args.replacement,
+        args.pr)
