@@ -43,9 +43,12 @@ def get_file_paths(repo_path: str, target: str) -> list:
     return raw_result.stdout.decode("utf-8").splitlines()
 
 def update_file(file_path: str, target: str, replacement: str):
-    with fileinput.FileInput(file_path, inplace=True) as file:
-        for line in file:
-            print(line.replace(target, replacement), end='')
+    try:
+        with fileinput.FileInput(file_path, inplace=True) as file:
+            for line in file:
+                print(line.replace(target, replacement), end='')
+    except FileNotFoundError:
+        print(f"WARNING: File {file_path} was not found.")
 
 def update_repo(
         org_name: str, repo_name: str, parent_directory: str,
