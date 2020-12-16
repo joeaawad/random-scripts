@@ -111,6 +111,8 @@ def main(org_name: str, repo_regex: str, repo_topic: str, ignore_repos: list,
     if not repo_regex and not repo_topic:
         raise ValueError("Must specify repo-regex or repo-topic")
 
+    print("Gathering list of repos, this may be slow if the organization owns "
+          "a lot of repos.")
     repo_names = get_repo_names(org_name, repo_regex, repo_topic, ignore_repos)
     print(f"The following repos will be checked: {repo_names}")
 
