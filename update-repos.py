@@ -18,6 +18,7 @@ import github # pip install pygithub
 import os
 import subprocess
 import tempfile
+from time import sleep
 
 def get_repo_names(org_name: str, repo_regex: str, repo_topic: str,
                    ignore_repos: list) -> list:
@@ -94,6 +95,7 @@ def create_pr(
         repo, remote_repo, repo_name: str, base_branch: str, branch_name: str,
         commit_message: str) -> str:
     repo.git.push()
+    sleep(1) # To avoid GitHub rate limiting if updating more than 10 repos
     pr = remote_repo.create_pull(
         title=commit_message,
         body="", # required or the package assumes the PR is based on an issue
