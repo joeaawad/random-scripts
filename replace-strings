@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+# Search the entire current directory and all children for a string and replace
+# it. This even works with multi-line strings like:
+#     ./replace-strings '\n required_version = ">=0.13"' ''
+
+set -euo pipefail
+
+SEARCH_STRING=$1
+REPLACEMENT=$2
+
+for FILE in $(ag -l "${SEARCH_STRING}")
+do
+    echo $FILE
+    perl -i -p0e "s/$SEARCH_STRING/$REPLACEMENT/se" $FILE
+done
