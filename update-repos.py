@@ -146,7 +146,7 @@ def main(org_name: str, repo_regex: str, repo_topic: str, ignore_repos: list,
 def parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "org_name", help="Github Organization")
+        "--org-name", required=True, help="Github Organization")
     parser.add_argument(
         "--repo-regex",
         help="Repo name regex to determine which repos to change")
@@ -160,17 +160,18 @@ def parser():
         "--base-branch", default="master",
         help="Name of the base branch to open a PR against")
     parser.add_argument(
-        "branch_name", help="Name to create the branch with")
+        "--branch-name", required=True, help="Name to create the branch with")
     parser.add_argument(
-        "commit_message", help="Commit message")
+        "--commit-message", required=True, help="Commit message")
     parser.add_argument(
         "--target-file",
         help="Path within the repo of the file to do the replacement in, "
              "default searches all files")
     parser.add_argument(
-        "target", help="String to find and replace")
+        "--target", required=True, help="String to find and replace")
     parser.add_argument(
-        "replacement", help="String to replace old_string with")
+        "--replacement", required=True,
+        help="String to replace old_string with")
     parser.add_argument(
         "--pr", action="store_true",
         help="If the change should be pushed up and a PR created")
