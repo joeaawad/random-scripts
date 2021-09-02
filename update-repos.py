@@ -1,7 +1,7 @@
 """Created by Joe Awad
 
 Update a string in all repos an organization owns that match a given name regex
-or repo topic.
+or repo topic.  Or just pass in a list of repos.
 
 A common use case is if you have all repos that use a certain tool include the
 tool name in the repo name or topic list and you would like to update the
@@ -20,8 +20,11 @@ import subprocess
 import tempfile
 from time import sleep
 
-def get_repo_names(org_name: str, repo_regex: str, repo_topic: str,
+def get_repo_names(org_name: str, repo_list: list, repo_regex: str, repo_topic: str,
                    ignore_repos: list) -> list:
+    # if user specifys a list of repos, skip expensive github api call
+    if repo_list:
+        return repo_list
     repos = []
 
     org = gh.get_organization(org_name)
@@ -52,14 +55,22 @@ def update_file(file_path: str, target: str, replacement: str):
         print(f"WARNING: File {file_path} was not found.")
 
 def update_repo(
-        org_name: str, repo_name: str, parent_directory: str,
-        base_branch: str, branch_name: str, commit_message: str,
+        org_name: str, repo_name: str, work_dir: str,
+        branch_name: str, commit_message: str,
         target_file: str, target: str, replacement: str, pr: bool) -> str:
     remote_repo = gh.get_repo(f"{org_name}/{repo_name}")
+    base_branch = remote_repo.default_branch
+    repo_path = os.path.join(work_dir, repo_name)
 
-    repo_path = os.path.join(parent_directory, repo_name)
-    print(f"Cloning {repo_name} to {repo_path}")
-    repo = git.Repo.clone_from(remote_repo.ssh_url, repo_path)
+    try:
+        repo = git.Repo(repo_path)
+        repo.git.checkout(base_branch)
+        repo.git.reset("--hard", "origin/%s" % base_branch)
+        repo.git.pull("origin", base_branch)
+
+    except git.exc.NoSuchPathError:
+        print(f"Cloning {repo_name} to {repo_path}")
+        repo = git.Repo.clone_from(remote_repo.ssh_url, repo_path)
 
     if target_file:
         file_paths = [target_file]
@@ -105,25 +116,32 @@ def create_pr(
     print(f"Created {pr.html_url}")
     return [pr.html_url]
 
-def main(org_name: str, repo_regex: str, repo_topic: str, ignore_repos: list,
-         base_branch: str, branch_name: str, commit_message: str,
-         target_file: str, target: str, replacement: str, pr: bool):
+def main(org_name: str, repo_list: list, repo_regex: str, repo_topic: str, ignore_repos: list,
+         branch_name: str, commit_message: str,
+         target_file: str, target: str, replacement: str, work_dir: str, pr: bool):
     results = []
 
-    if not repo_regex and not repo_topic:
-        raise ValueError("Must specify repo-regex or repo-topic")
+    if not repo_regex and not repo_topic and not repo_list:
+        raise ValueError("Must specify repo_list, repo-regex, or repo-topic")
+
+    if repo_list and (repo_regex or repo_topic):
+        raise ValueError("It's an error to specify a repo list and a regex / topic!")
+
+    if branch_name == "master" or branch_name == "main":
+        raise ValueError("--branch-name is the name of your topic branch, it shouldn't be %s!" % branch_name)
 
     print("Gathering list of repos, this may be slow if the organization owns "
           "a lot of repos.")
-    repo_names = get_repo_names(org_name, repo_regex, repo_topic, ignore_repos)
+    repo_names = get_repo_names(org_name, repo_list, repo_regex, repo_topic, ignore_repos)
     print(f"The following repos will be checked: {repo_names}")
 
-    parent_directory = tempfile.TemporaryDirectory().name
-    print(f"Directory created at {parent_directory}")
+    if not work_dir:
+      work_dir = tempfile.TemporaryDirectory().name
+      print(f"Directory created at {work_dir}")
 
     for repo_name in repo_names:
         result_paths = update_repo(
-            org_name, repo_name, parent_directory, base_branch, branch_name,
+            org_name, repo_name, work_dir, branch_name,
             commit_message, target_file, target, replacement, pr)
 
         if result_paths is not None:
@@ -136,7 +154,7 @@ def main(org_name: str, repo_regex: str, repo_topic: str, ignore_repos: list,
         if pr:
             print("Finished, created the following PRs:")
         else:
-            print(f"Changed the following files in {parent_directory}:")
+            print(f"Changed the following files in {work_dir}:")
         for path in results:
             print(path)
         if not pr:
@@ -148,17 +166,17 @@ def parser():
     parser.add_argument(
         "--org-name", required=True, help="Github Organization")
     parser.add_argument(
+        "--repo-list", default=[], nargs="*",
+        help="List of repos that need to be changed")
+    parser.add_argument(
         "--repo-regex",
         help="Repo name regex to determine which repos to change")
     parser.add_argument(
         "--repo-topic",
         help="Repo topic to determine which repos to change")
     parser.add_argument(
-        "--ignore-repos", default=[],
+        "--ignore-repos", default=[], nargs="*",
         help="List of names of repos to skip")
-    parser.add_argument(
-        "--base-branch", default="master",
-        help="Name of the base branch to open a PR against")
     parser.add_argument(
         "--branch-name", required=True, help="Name to create the branch with")
     parser.add_argument(
@@ -171,7 +189,10 @@ def parser():
         "--target", required=True, help="String to find and replace")
     parser.add_argument(
         "--replacement", required=True,
-        help="String to replace old_string with")
+        help="String to replace --target with")
+    parser.add_argument(
+        "--work-dir",
+        help="Path where the git clones should live. WARNING: this is going to run git reset --hard, so dont pick the same dir that you use for manual edits!")
     parser.add_argument(
         "--pr", action="store_true",
         help="If the change should be pushed up and a PR created")
@@ -185,13 +206,14 @@ if __name__ == "__main__":
 
     main(
         args.org_name,
+        args.repo_list,
         args.repo_regex,
         args.repo_topic,
         args.ignore_repos,
-        args.base_branch,
         args.branch_name,
         args.commit_message,
         args.target_file,
         args.target,
         args.replacement,
+        args.work_dir,
         args.pr)
