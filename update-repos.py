@@ -63,6 +63,10 @@ def update_repo(org_name: str, repo_name: str, work_dir: str, branch_name: str,
                 commit_message: str, target_file: str, target: str,
                 replacement: str, pr: bool) -> str:
     remote_repo = gh.get_repo(f"{org_name}/{repo_name}")
+    if remote_repo.archived:
+        print(f"WARNING: {repo_name} is archived.  Skipping...")
+        return
+    
     base_branch = remote_repo.default_branch
     repo_path = os.path.join(work_dir, repo_name)
 
@@ -106,8 +110,8 @@ def update_repo(org_name: str, repo_name: str, work_dir: str, branch_name: str,
 
 def create_pr(repo, remote_repo, repo_name: str, base_branch: str,
               branch_name: str, commit_message: str) -> str:
-    repo.git.push()
-    sleep(1)  # To avoid GitHub rate limiting if updating more than 10 repos
+    repo.git.push('origin', branch_name)
+    sleep(12)  # To avoid GitHub rate limiting if updating more than 10 repos
     pr = remote_repo.create_pull(
         title=commit_message,
         body="",  # required or the package assumes the PR is based on an issue
