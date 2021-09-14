@@ -1,7 +1,8 @@
 """Created by Joe Awad
 
 Update a string in all repos an organization owns that match a given name regex
-or repo topic.
+or repo topic. Alternatively, you can provide a list of repo names to use and
+skip searching the organization's repo list.
 
 A common use case is if you have all repos that use a certain tool include the
 tool name in the repo name or topic list and you would like to update the
@@ -23,6 +24,9 @@ from time import sleep
 def get_repo_names(org_name: str, repo_regex: str, repo_topic: str,
                    ignore_repos: list) -> list:
     repos = []
+
+    print("Gathering list of repos, this may be slow if the organization owns "
+          "a lot of repos.")
 
     org = gh.get_organization(org_name)
     all_repos = org.get_repos()
@@ -56,6 +60,10 @@ def update_repo(
         base_branch: str, branch_name: str, commit_message: str,
         target_file: str, target: str, replacement: str, pr: bool) -> str:
     remote_repo = gh.get_repo(f"{org_name}/{repo_name}")
+
+    if remote_repo.archived:
+        print(f"WARNING: {repo_name} is archived.  Skipping...")
+        return
 
     repo_path = os.path.join(parent_directory, repo_name)
     print(f"Cloning {repo_name} to {repo_path}")
@@ -94,8 +102,11 @@ def update_repo(
 def create_pr(
         repo, remote_repo, repo_name: str, base_branch: str, branch_name: str,
         commit_message: str) -> str:
+    if base_branch is None:
+        base_branch = remote_repo.default_branch
+
     repo.git.push()
-    sleep(1) # To avoid GitHub rate limiting if updating more than 10 repos
+    sleep(2) # To avoid GitHub rate limiting if updating more than 10 repos
     pr = remote_repo.create_pull(
         title=commit_message,
         body="", # required or the package assumes the PR is based on an issue
@@ -105,17 +116,25 @@ def create_pr(
     print(f"Created {pr.html_url}")
     return [pr.html_url]
 
-def main(org_name: str, repo_regex: str, repo_topic: str, ignore_repos: list,
-         base_branch: str, branch_name: str, commit_message: str,
-         target_file: str, target: str, replacement: str, pr: bool):
+def main(org_name: str, repo_regex: str, repo_topic: str, repo_list: list,
+         ignore_repos: list, base_branch: str, branch_name: str,
+         commit_message: str, target_file: str, target: str, replacement: str,
+         pr: bool):
     results = []
 
-    if not repo_regex and not repo_topic:
-        raise ValueError("Must specify repo-regex or repo-topic")
+    # Validate repo selection arguments
+    if not repo_regex and not repo_topic and not repo_list:
+        raise ValueError("Must specify repo-regex, repo-topic, or repo-list.")
+    if repo_list and (repo_regex or repo_topic):
+        raise ValueError(
+            "Cannot specify both repo-list and repo-regex or repo-topic.")
 
-    print("Gathering list of repos, this may be slow if the organization owns "
-          "a lot of repos.")
-    repo_names = get_repo_names(org_name, repo_regex, repo_topic, ignore_repos)
+    # Select repos
+    if repo_list:
+        repo_names = repo_list
+    else:
+        repo_names = get_repo_names(org_name, repo_regex, repo_topic, ignore_repos)
+
     print(f"The following repos will be checked: {repo_names}")
 
     parent_directory = tempfile.TemporaryDirectory().name
@@ -154,11 +173,16 @@ def parser():
         "--repo-topic",
         help="Repo topic to determine which repos to change")
     parser.add_argument(
-        "--ignore-repos", default=[],
+        "--repo-list", default=[], nargs="*",
+        help="List of repo names to change")
+    parser.add_argument(
+        "--ignore-repos", default=[], nargs="*",
         help="List of names of repos to skip")
     parser.add_argument(
-        "--base-branch", default="master",
-        help="Name of the base branch to open a PR against")
+        "--base-branch",
+        help="Name of the branch to open a PR against. Only necessary if you "
+             "are opening the PR against a branch other than the repo's "
+             "default branch")
     parser.add_argument(
         "--branch-name", required=True, help="Name to create the branch with")
     parser.add_argument(
@@ -187,6 +211,7 @@ if __name__ == "__main__":
         args.org_name,
         args.repo_regex,
         args.repo_topic,
+        args.repo_list,
         args.ignore_repos,
         args.base_branch,
         args.branch_name,
