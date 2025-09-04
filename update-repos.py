@@ -205,7 +205,7 @@ def parser():
 if __name__ == "__main__":
     args = parser()
 
-    gh = github.Github(os.getenv("GITHUB_TOKEN"))
+    gh = github.Github(auth=github.Auth.Token(os.getenv("GITHUB_TOKEN")))
 
     main(
         args.org_name,
